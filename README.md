@@ -8,6 +8,36 @@
 [![Pod Platform](https://img.shields.io/cocoapods/p/AppAuth.svg?style=flat)](https://cocoapods.org/pods/AppAuth)
 [![Catalyst compatible](https://img.shields.io/badge/Catalyst-compatible-brightgreen.svg?style=flat)](https://developer.apple.com/documentation/xcode/creating_a_mac_version_of_your_ipad_app)
 
+## New Black fork
+
+This is [new-black/AppAuth-iOS](https://github.com/new-black/AppAuth-iOS), a fork of
+[openid/AppAuth-iOS](https://github.com/openid/AppAuth-iOS). It is consumed by the Shared
+package of the EVA app suite via a `<upstream>-nb.<n>` tag (for example `3.0.0-nb.1`).
+
+### Local patches to keep on every upstream sync
+
+| Patch | File | Why |
+|---|---|---|
+| Trailing-slash redirect match (`path:matchesRedirectPath:`) | `Sources/AppAuthCore/OIDAuthorizationService.m` | Azure AD appends a `/` to the redirect URL, so `scheme://openid/` must match the registered `scheme://openid`. Marked with a `// new-black:` comment. |
+
+### Patches that were dropped because upstream covers them
+
+- Return `NO` instead of raising `OIDOAuthExceptionInvalidAuthorizationFlow` when there is no
+  pending flow. Superseded by upstream 2.1.0 (#955, #970), which returns `NO` plus an `NSError`.
+- Hardcoded `prefersEphemeralWebBrowserSession = YES`. Reverted in the fork; Shared now passes
+  `prefersEphemeralSession: true` from `OpenIDButton` instead.
+
+### How to sync
+
+```sh
+git fetch upstream --tags
+git checkout -b feature/sync-upstream-<version> master
+git merge <version>                 # merge the upstream tag, not upstream/master
+# resolve, keep the patches listed above, swift build
+# PR to master, then:
+git tag <version>-nb.1 && git push origin <version>-nb.1
+```
+
 AppAuth for iOS and macOS, and tvOS is a client SDK for communicating with 
 [OAuth 2.0](https://tools.ietf.org/html/rfc6749) and 
 [OpenID Connect](http://openid.net/specs/openid-connect-core-1_0.html) providers. 
