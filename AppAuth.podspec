@@ -1,7 +1,7 @@
 Pod::Spec.new do |s|
 
   s.name         = "AppAuth"
-  s.version      = "2.0.0"
+  s.version      = "3.0.0"
   s.summary      = "AppAuth for iOS and macOS is a client SDK for communicating with OAuth 2.0 and OpenID Connect providers."
 
   s.description  = <<-DESC
@@ -31,12 +31,12 @@ It follows the OAuth 2.0 for Native Apps best current practice
   #       classes of AppAuth with tokens on watchOS and tvOS, but currently the
   #       library won't help you obtain authorization grants on those platforms.
 
-  ios_deployment_target = "12.0"
-  osx_deployment_target = "10.12"
+  ios_deployment_target = "15.0"
+  osx_deployment_target = "12.0"
   s.ios.deployment_target = ios_deployment_target
   s.osx.deployment_target = osx_deployment_target
-  s.watchos.deployment_target = "2.0"
-  s.tvos.deployment_target = "9.0"
+  s.watchos.deployment_target = "9.0"
+  s.tvos.deployment_target = "15.0"
 
   s.source       = { :git => "https://github.com/openid/AppAuth-iOS.git", :tag => s.version }
   s.requires_arc = true
