@@ -108,47 +108,71 @@ NS_ASSUME_NONNULL_BEGIN
   NSURL *standardizedURL = [URL standardizedURL];
   NSURL *standardizedRedirectURL = [redirectionURL standardizedURL];
 
-  return OIDIsEqualIncludingNil(standardizedURL.scheme, standardizedRedirectURL.scheme) &&
-    OIDIsEqualIncludingNil(standardizedURL.user, standardizedRedirectURL.user) &&
-    OIDIsEqualIncludingNil(standardizedURL.password, standardizedRedirectURL.password) &&
-    OIDIsEqualIncludingNil(standardizedURL.host, standardizedRedirectURL.host) &&
-    OIDIsEqualIncludingNil(standardizedURL.port, standardizedRedirectURL.port) &&
-    (OIDIsEqualIncludingNil(standardizedURL.path, standardizedRedirectURL.path) ||
-    (standardizedURL.path.length > 0 && [standardizedURL.path hasSuffix:@"/"] &&
-    OIDIsEqualIncludingNil([standardizedURL.path substringToIndex:standardizedURL.path.length-1],
-    standardizedRedirectURL.path)));
+  return [standardizedURL.scheme caseInsensitiveCompare:standardizedRedirectURL.scheme] == NSOrderedSame
+      && OIDIsEqualIncludingNil(standardizedURL.user, standardizedRedirectURL.user)
+      && OIDIsEqualIncludingNil(standardizedURL.password, standardizedRedirectURL.password)
+      && OIDIsEqualIncludingNil(standardizedURL.host, standardizedRedirectURL.host)
+      && OIDIsEqualIncludingNil(standardizedURL.port, standardizedRedirectURL.port)
+      && ([self path:standardizedURL.path matchesRedirectPath:standardizedRedirectURL.path]);
+}
+
+// new-black: Azure appends a trailing slash to the redirect URL; tolerate "path/" matching "path".
++ (BOOL)path:(NSString *)path matchesRedirectPath:(NSString *)redirectPath {
+  if (OIDIsEqualIncludingNil(path, redirectPath)) {
+    return YES;
+  }
+  return path.length > 0 && [path hasSuffix:@"/"]
+      && OIDIsEqualIncludingNil([path substringToIndex:path.length - 1], redirectPath);
 }
 
 - (BOOL)shouldHandleURL:(NSURL *)URL {
   return [[self class] URL:URL matchesRedirectionURL:_request.redirectURL];
 }
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-implementations"
 - (BOOL)resumeExternalUserAgentFlowWithURL:(NSURL *)URL {
+  return [self resumeExternalUserAgentFlowWithURL:URL error:nil];
+}
+#pragma clang diagnostic pop
+
+- (BOOL)resumeExternalUserAgentFlowWithURL:(NSURL *)URL error:(NSError *_Nullable *_Nullable)error {
   // rejects URLs that don't match redirect (these may be completely unrelated to the authorization)
   if (![self shouldHandleURL:URL]) {
+    if (error) {
+      *error = [OIDErrorUtilities errorWithCode:OIDErrorCodeURLMismatch
+                                underlyingError:nil
+                                    description:@"URL does not match the expected redirect URI."];
+    }
     return NO;
   }
   
   AppAuthRequestTrace(@"Authorization Response: %@", URL);
+  
   // checks for an invalid state
   if (!_pendingauthorizationFlowCallback) {
-      return NO;
+    if (error) {
+      *error = [OIDErrorUtilities errorWithCode:OIDErrorCodeInvalidAuthorizationFlow
+                                underlyingError:nil
+                                    description:@"There is no pending authorization flow to resume."];
+    }
+    return NO;
   }
 
   OIDURLQueryComponent *query = [[OIDURLQueryComponent alloc] initWithURL:URL];
 
-  NSError *error;
+  NSError *responseError;
   OIDAuthorizationResponse *response = nil;
 
   // checks for an OAuth error response as per RFC6749 Section 4.1.2.1
   if (query.dictionaryValue[OIDOAuthErrorFieldError]) {
-    error = [OIDErrorUtilities OAuthErrorWithDomain:OIDOAuthAuthorizationErrorDomain
-                                      OAuthResponse:query.dictionaryValue
-                                    underlyingError:nil];
+    responseError = [OIDErrorUtilities OAuthErrorWithDomain:OIDOAuthAuthorizationErrorDomain
+                                              OAuthResponse:query.dictionaryValue
+                                            underlyingError:nil];
   }
 
   // no error, should be a valid OAuth 2.0 response
-  if (!error) {
+  if (!responseError) {
     response = [[OIDAuthorizationResponse alloc] initWithRequest:_request
                                                       parameters:query.dictionaryValue];
       
@@ -162,14 +186,14 @@ NS_ASSUME_NONNULL_BEGIN
                                    response.state,
                                    response];
       response = nil;
-      error = [NSError errorWithDomain:OIDOAuthAuthorizationErrorDomain
-                                  code:OIDErrorCodeOAuthAuthorizationClientError
-                              userInfo:userInfo];
+      responseError = [NSError errorWithDomain:OIDOAuthAuthorizationErrorDomain
+                                          code:OIDErrorCodeOAuthAuthorizationClientError
+                                      userInfo:userInfo];
       }
   }
 
   [_externalUserAgent dismissExternalUserAgentAnimated:YES completion:^{
-      [self didFinishWithResponse:response error:error];
+      [self didFinishWithResponse:response error:responseError];
   }];
 
   return YES;
@@ -254,18 +278,35 @@ NS_ASSUME_NONNULL_BEGIN
                         matchesRedirectionURL:_request.postLogoutRedirectURL];
 }
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-implementations"
 - (BOOL)resumeExternalUserAgentFlowWithURL:(NSURL *)URL {
+  return [self resumeExternalUserAgentFlowWithURL:URL error:nil];
+}
+#pragma clang diagnostic pop
+
+- (BOOL)resumeExternalUserAgentFlowWithURL:(NSURL *)URL error:(NSError *_Nullable *_Nullable)error {
   // rejects URLs that don't match redirect (these may be completely unrelated to the authorization)
   if (![self shouldHandleURL:URL]) {
+    if (error) {
+      *error = [OIDErrorUtilities errorWithCode:OIDErrorCodeURLMismatch
+                                underlyingError:nil
+                                    description:@"URL does not match the expected redirect URI."];
+    }
     return NO;
   }
   // checks for an invalid state
   if (!_pendingEndSessionCallback) {
-      return NO;
+    if (error) {
+      *error = [OIDErrorUtilities errorWithCode:OIDErrorCodeInvalidAuthorizationFlow
+                                underlyingError:nil
+                                    description:@"There is no pending authorization flow to resume."];
+    }
+    return NO;
   }
   
   
-  NSError *error;
+  NSError *responseError;
   OIDEndSessionResponse *response = nil;
 
   OIDURLQueryComponent *query = [[OIDURLQueryComponent alloc] initWithURL:URL];
@@ -282,13 +323,13 @@ NS_ASSUME_NONNULL_BEGIN
      response.state,
      response];
     response = nil;
-    error = [NSError errorWithDomain:OIDOAuthAuthorizationErrorDomain
-                                code:OIDErrorCodeOAuthAuthorizationClientError
-                            userInfo:userInfo];
+    responseError = [NSError errorWithDomain:OIDOAuthAuthorizationErrorDomain
+                                        code:OIDErrorCodeOAuthAuthorizationClientError
+                                    userInfo:userInfo];
   }
   
   [_externalUserAgent dismissExternalUserAgentAnimated:YES completion:^{
-    [self didFinishWithResponse:response error:error];
+    [self didFinishWithResponse:response error:responseError];
   }];
   
   return YES;

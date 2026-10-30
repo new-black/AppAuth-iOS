@@ -8,6 +8,36 @@
 [![Pod Platform](https://img.shields.io/cocoapods/p/AppAuth.svg?style=flat)](https://cocoapods.org/pods/AppAuth)
 [![Catalyst compatible](https://img.shields.io/badge/Catalyst-compatible-brightgreen.svg?style=flat)](https://developer.apple.com/documentation/xcode/creating_a_mac_version_of_your_ipad_app)
 
+## New Black fork
+
+This is [new-black/AppAuth-iOS](https://github.com/new-black/AppAuth-iOS), a fork of
+[openid/AppAuth-iOS](https://github.com/openid/AppAuth-iOS). It is consumed by the Shared
+package of the EVA app suite via a `<upstream>-nb.<n>` tag (for example `3.0.0-nb.1`).
+
+### Local patches to keep on every upstream sync
+
+| Patch | File | Why |
+|---|---|---|
+| Trailing-slash redirect match (`path:matchesRedirectPath:`) | `Sources/AppAuthCore/OIDAuthorizationService.m` | Azure AD appends a `/` to the redirect URL, so `scheme://openid/` must match the registered `scheme://openid`. Marked with a `// new-black:` comment. |
+
+### Patches that were dropped because upstream covers them
+
+- Return `NO` instead of raising `OIDOAuthExceptionInvalidAuthorizationFlow` when there is no
+  pending flow. Superseded by upstream 2.1.0 (#955, #970), which returns `NO` plus an `NSError`.
+- Hardcoded `prefersEphemeralWebBrowserSession = YES`. Reverted in the fork; Shared now passes
+  `prefersEphemeralSession: true` from `OpenIDButton` instead.
+
+### How to sync
+
+```sh
+git fetch upstream --tags
+git checkout -b feature/sync-upstream-<version> master
+git merge <version>                 # merge the upstream tag, not upstream/master
+# resolve, keep the patches listed above, swift build
+# PR to master, then:
+git tag <version>-nb.1 && git push origin <version>-nb.1
+```
+
 AppAuth for iOS and macOS, and tvOS is a client SDK for communicating with 
 [OAuth 2.0](https://tools.ietf.org/html/rfc6749) and 
 [OpenID Connect](http://openid.net/specs/openid-connect-core-1_0.html) providers. 
@@ -39,14 +69,13 @@ For tvOS, AppAuth implements [OAuth 2.0 Device Authorization Grant
 
 #### Supported Versions
 
-AppAuth supports iOS 12 and above.
+AppAuth supports iOS 15 and above.
 
 Authentication is performed using `ASWebAuthenticationSession`.
 
 #### Authorization Server Requirements
 
-Both Custom URI Schemes (all supported versions of iOS) and Universal Links
-(iOS 9+) can be used with the library.
+Both Custom URI Schemes and Universal Links can be used with the library.
 
 In general, AppAuth can work with any authorization server that supports
 native apps, as documented in [RFC 8252](https://tools.ietf.org/html/rfc8252),
@@ -58,7 +87,7 @@ confidentiality of the client secrets may not work well.
 
 #### Supported Versions
 
-AppAuth supports macOS (OS X) 10.9 and above.
+AppAuth supports macOS 12 and above.
 
 #### Authorization Server Requirements
 
@@ -75,7 +104,7 @@ confidentiality of the client secrets may not work well.
 
 #### Supported Versions
 
-AppAuth supports tvOS 9.0 and above. Please note that while it is possible to run the standard AppAuth library on tvOS, the documentation below describes implementing [OAuth 2.0 Device Authorization Grant](https://tools.ietf.org/html/rfc8628) (AppAuthTV).
+AppAuth supports tvOS 15.0 and above. Please note that while it is possible to run the standard AppAuth library on tvOS, the documentation below describes implementing [OAuth 2.0 Device Authorization Grant](https://tools.ietf.org/html/rfc8628) (AppAuthTV).
 
 #### Authorization Server Requirements
 
@@ -380,9 +409,16 @@ authorization session (created in the previous session):
             options:(NSDictionary<NSString *, id> *)options {
   // Sends the URL to the current authorization flow (if any) which will
   // process it if it relates to an authorization response.
-  if ([_currentAuthorizationFlow resumeExternalUserAgentFlowWithURL:url]) {
+  // Handling the error lets you filter for conditions that require
+  // logging, such as an unexpected state
+  // (OIDErrorCodeInvalidAuthorizationFlow). Benign mismatches
+  // (OIDErrorCodeURLMismatch) are kept silent.
+  NSError *error = nil;
+  if ([_currentAuthorizationFlow resumeExternalUserAgentFlowWithURL:url error:&error]) {
     _currentAuthorizationFlow = nil;
     return YES;
+  } else if (error.code == OIDErrorCodeInvalidAuthorizationFlow) {
+    NSLog(@"Authorization flow could not handle URL: %@", error.localizedDescription);
   }
 
   // Your additional URL handling (if any) goes here.
@@ -397,11 +433,20 @@ func application(_ app: UIApplication,
                  open url: URL,
                  options: [UIApplicationOpenURLOptionsKey : Any] = [:]) -> Bool {
   // Sends the URL to the current authorization flow (if any) which will
-  // process it if it relates to an authorization response.
-  if let authorizationFlow = self.currentAuthorizationFlow,
-                             authorizationFlow.resumeExternalUserAgentFlow(with: url) {
-    self.currentAuthorizationFlow = nil
-    return true
+  // process it if it relates to an authorization response. Handling the
+  // error lets you filter for conditions that require logging, such as
+  // an unexpected state (OIDErrorCodeInvalidAuthorizationFlow). Benign
+  // mismatches (OIDErrorCodeURLMismatch) are kept silent.
+  if let authorizationFlow = self.currentAuthorizationFlow {
+    do {
+      try authorizationFlow.resumeExternalUserAgentFlow(url)
+      self.currentAuthorizationFlow = nil
+      return true
+    } catch let error as NSError where error.code == OIDErrorCodeInvalidAuthorizationFlow.rawValue {
+      print("Authorization flow could not handle URL: \(error.localizedDescription)")
+    } catch {
+      // Benign mismatch (e.g. OIDErrorCodeURLMismatch): fall through.
+    }
   }
 
   // Your additional URL handling (if any)
